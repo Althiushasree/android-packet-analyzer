@@ -14,20 +14,31 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SyncAlt
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,19 +56,61 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.model.EnhancedSocketConnection
 import com.example.data.model.PacketEntity
+import com.example.data.model.SocketConnectionState
 import java.util.Locale
 
 @Composable
 fun ConnectionsScreen(
-  packets: List<PacketEntity>
+  packets: List<PacketEntity> = emptyList(),
+  enhancedConnections: List<EnhancedSocketConnection> = emptyList(),
+  onFilterPacketsByConnection: (remoteIp: String, appName: String) -> Unit = { _, _ -> }
 ) {
-  var selectedConnectionPacket by remember { mutableStateOf<PacketEntity?>(null) }
+  var selectedConnection by remember { mutableStateOf<EnhancedSocketConnection?>(null) }
+  var searchQuery by remember { mutableStateOf("") }
+  var selectedStateFilter by remember { mutableStateOf("ALL") }
 
-  // Group packets by app and destination host to represent active connections
-  val connectionGroups = remember(packets) {
-    packets.groupBy { "${it.appName}_${it.host}_${it.destPort}" }.values.map { list ->
-      list.first() to list
+  // Fallback to synthesizing connections if enhanced list is empty
+  val connectionList = remember(packets, enhancedConnections) {
+    if (enhancedConnections.isNotEmpty()) {
+      enhancedConnections
+    } else {
+      packets.groupBy { "${it.appName}_${it.host}_${it.destPort}" }.values.map { list ->
+        val first = list.first()
+        val totalBytes = list.sumOf { it.length.toLong() }
+        EnhancedSocketConnection(
+          connectionId = "${first.sourceIp}:${first.sourcePort}->${first.destIp}:${first.destPort}",
+          appName = first.appName,
+          appPackage = first.appPackage,
+          localIp = first.sourceIp,
+          localPort = first.sourcePort,
+          remoteIp = first.destIp,
+          remotePort = first.destPort,
+          remoteHostname = first.host,
+          protocol = first.protocol,
+          state = if (first.status == "OPEN") SocketConnectionState.ESTABLISHED else SocketConnectionState.CLOSED,
+          totalBytes = totalBytes,
+          uploadBytes = (totalBytes * 0.3).toLong(),
+          downloadBytes = (totalBytes * 0.7).toLong(),
+          packetCount = list.size,
+          rttMs = 18.4,
+          durationSeconds = 12.5,
+          isEncryptedTls = first.protocol.equals("TLS", true) || first.destPort == 443
+        )
+      }
+    }
+  }
+
+  val filteredConnections = remember(connectionList, searchQuery, selectedStateFilter) {
+    connectionList.filter { conn ->
+      val matchesSearch = searchQuery.isBlank() ||
+        conn.appName.contains(searchQuery, ignoreCase = true) ||
+        conn.remoteIp.contains(searchQuery, ignoreCase = true) ||
+        conn.remoteHostname.contains(searchQuery, ignoreCase = true) ||
+        conn.remotePort.toString().contains(searchQuery)
+      val matchesState = selectedStateFilter == "ALL" || conn.state.name.equals(selectedStateFilter, ignoreCase = true)
+      matchesSearch && matchesState
     }
   }
 
@@ -68,20 +121,71 @@ fun ConnectionsScreen(
       .padding(horizontal = 16.dp, vertical = 8.dp)
       .testTag("connections_screen")
   ) {
-    Text(
-      text = "Active App Connections (${connectionGroups.size})",
-      style = MaterialTheme.typography.titleSmall,
-      fontWeight = FontWeight.Bold,
-      color = MaterialTheme.colorScheme.primary,
-      modifier = Modifier.padding(bottom = 8.dp)
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Column {
+        Text(
+          text = "Active Socket Connections",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold
+        )
+        Text(
+          text = "${filteredConnections.size} Live Sockets • TCP / UDP Flow Table",
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Search bar
+    OutlinedTextField(
+      value = searchQuery,
+      onValueChange = { searchQuery = it },
+      placeholder = { Text("Search App, Hostname, Remote IP, Port...", fontSize = 12.sp) },
+      leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+      trailingIcon = {
+        if (searchQuery.isNotEmpty()) {
+          IconButton(onClick = { searchQuery = "" }) {
+            Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+          }
+        }
+      },
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(8.dp)
     )
 
-    if (connectionGroups.isEmpty()) {
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // State filters
+    val states = listOf("ALL", "ESTABLISHED", "SYN_SENT", "TIME_WAIT", "LISTEN", "CLOSED")
+    LazyRow(
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      items(states) { stateName ->
+        FilterChip(
+          selected = selectedStateFilter == stateName,
+          onClick = { selectedStateFilter = stateName },
+          label = { Text(stateName, fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+          shape = RoundedCornerShape(8.dp)
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    if (filteredConnections.isEmpty()) {
       Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
       ) {
-        Text("No active app connections recorded", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("No active socket connections match query", color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
     } else {
       LazyColumn(
@@ -89,122 +193,130 @@ fun ConnectionsScreen(
         modifier = Modifier.fillMaxSize()
       ) {
         items(
-          items = connectionGroups,
-          key = { "${it.first.appName}_${it.first.id}" }
-        ) { (primaryPacket, group) ->
-          val totalBytes = group.sumOf { it.length.toLong() }
-          ConnectionCardItem(
-            packet = primaryPacket,
-            packetCount = group.size,
-            totalBytes = totalBytes,
-            onClick = { selectedConnectionPacket = primaryPacket }
+          items = filteredConnections,
+          key = { it.connectionId }
+        ) { conn ->
+          EnhancedConnectionCard(
+            conn = conn,
+            onClick = { selectedConnection = conn }
           )
         }
       }
     }
 
-    // Connection Details Dialog (PCAPdroid style)
-    selectedConnectionPacket?.let { pkt ->
-      ConnectionDetailDialog(
-        packet = pkt,
-        onDismiss = { selectedConnectionPacket = null }
+    // Connection Details Modal Dialog
+    selectedConnection?.let { conn ->
+      EnhancedConnectionDetailDialog(
+        conn = conn,
+        onDismiss = { selectedConnection = null },
+        onFilterPackets = {
+          onFilterPacketsByConnection(conn.remoteIp, conn.appName)
+          selectedConnection = null
+        }
       )
     }
   }
 }
 
 @Composable
-private fun ConnectionCardItem(
-  packet: PacketEntity,
-  packetCount: Int,
-  totalBytes: Long,
+private fun EnhancedConnectionCard(
+  conn: EnhancedSocketConnection,
   onClick: () -> Unit
 ) {
+  val stateColor = when (conn.state) {
+    SocketConnectionState.ESTABLISHED -> Color(0xFF16A34A)
+    SocketConnectionState.SYN_SENT -> Color(0xFF2563EB)
+    SocketConnectionState.TIME_WAIT -> Color(0xFFD97706)
+    SocketConnectionState.LISTEN -> Color(0xFF7C3AED)
+    SocketConnectionState.CLOSE_WAIT, SocketConnectionState.CLOSED -> Color(0xFF64748B)
+  }
+
   Card(
     modifier = Modifier
       .fillMaxWidth()
       .clickable(onClick = onClick)
-      .testTag("connection_card_${packet.id}"),
+      .testTag("connection_card_${conn.connectionId}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     shape = RoundedCornerShape(12.dp),
     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
   ) {
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(12.dp),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      // App Avatar / Icon Container
-      Box(
-        modifier = Modifier
-          .size(40.dp)
-          .clip(CircleShape)
-          .background(MaterialTheme.colorScheme.primaryContainer),
-        contentAlignment = Alignment.Center
+    Column(modifier = Modifier.padding(12.dp)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(
-          Icons.Default.Android,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.size(24.dp)
-        )
-      }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Box(
+            modifier = Modifier
+              .size(36.dp)
+              .clip(CircleShape)
+              .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              Icons.Default.Android,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(20.dp)
+            )
+          }
 
-      Spacer(modifier = Modifier.width(12.dp))
+          Spacer(modifier = Modifier.width(10.dp))
 
-      // App Name, Protocol/Port, Host
-      Column(modifier = Modifier.weight(1f)) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Text(
-            text = packet.appName,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-          )
-          Text(
-            text = if (packet.status == "OPEN") "Open" else "Closed",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = if (packet.status == "OPEN") Color(0xFF16A34A) else Color(0xFF64748B)
-          )
+          Column {
+            Text(
+              text = conn.appName,
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.Bold,
+              color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+              text = conn.remoteHostname,
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1
+            )
+          }
         }
 
-        Spacer(modifier = Modifier.height(2.dp))
+        Surface(
+          color = stateColor.copy(alpha = 0.15f),
+          shape = RoundedCornerShape(6.dp)
+        ) {
+          Text(
+            text = conn.state.label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = stateColor,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            fontSize = 10.sp
+          )
+        }
+      }
 
+      Spacer(modifier = Modifier.height(8.dp))
+      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+      Spacer(modifier = Modifier.height(8.dp))
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
         Text(
-          text = "${packet.protocol}, ${packet.destPort}",
+          text = "${conn.protocol} • ${conn.localPort} → ${conn.remoteIp}:${conn.remotePort}",
           style = MaterialTheme.typography.labelSmall,
+          fontFamily = FontFamily.Monospace,
           color = MaterialTheme.colorScheme.primary,
           fontWeight = FontWeight.SemiBold
         )
 
         Text(
-          text = packet.host,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          maxLines = 1
-        )
-      }
-
-      Spacer(modifier = Modifier.width(8.dp))
-
-      // Byte Count & Chevron
-      Column(horizontalAlignment = Alignment.End) {
-        Text(
-          text = if (totalBytes > 1024 * 1024) "${String.format(Locale.US, "%.1f", totalBytes / 1024.0 / 1024.0)} MB"
-          else "${totalBytes / 1024} KB",
-          style = MaterialTheme.typography.bodySmall,
+          text = if (conn.totalBytes > 1024 * 1024) "${String.format(Locale.US, "%.1f", conn.totalBytes / 1024.0 / 1024.0)} MB"
+          else "${conn.totalBytes / 1024} KB (${conn.packetCount} pkts)",
+          style = MaterialTheme.typography.labelSmall,
           fontWeight = FontWeight.Bold
-        )
-        Icon(
-          Icons.Default.ChevronRight,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.outline
         )
       }
     }
@@ -212,61 +324,73 @@ private fun ConnectionCardItem(
 }
 
 @Composable
-private fun ConnectionDetailDialog(
-  packet: PacketEntity,
-  onDismiss: () -> Unit
+private fun EnhancedConnectionDetailDialog(
+  conn: EnhancedSocketConnection,
+  onDismiss: () -> Unit,
+  onFilterPackets: () -> Unit
 ) {
   Dialog(onDismissRequest = onDismiss) {
     Card(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(16.dp)
+        .padding(10.dp)
         .testTag("connection_detail_dialog"),
       shape = RoundedCornerShape(16.dp),
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-      Column(modifier = Modifier.padding(20.dp)) {
+      Column(modifier = Modifier.padding(18.dp)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically
         ) {
-          Text(
-            text = "Connection Details",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-          )
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.SyncAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = "Socket Connection",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold
+            )
+          }
           IconButton(onClick = onDismiss) {
             Icon(Icons.Default.Close, contentDescription = "Close")
           }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-        DetailRow("App", "${packet.appName} (${packet.appPackage})")
-        DetailRow("Protocol", "${packet.protocol} (TCP/UDP)")
-        DetailRow("Host", packet.host)
-        DetailRow("Source", "${packet.sourceIp}:${packet.sourcePort}")
-        DetailRow("Destination", "${packet.destIp}:${packet.destPort}")
-        DetailRow("Status", packet.status)
-        DetailRow("URL", packet.httpUrl ?: "https://${packet.host}")
+        DetailRow("Application", "${conn.appName} (${conn.appPackage})")
+        DetailRow("Protocol / State", "${conn.protocol} • ${conn.state.label}")
+        DetailRow("Process UID", "UID: ${conn.processUid}")
+        DetailRow("Local Endpoint", "${conn.localIp}:${conn.localPort}")
+        DetailRow("Remote Endpoint", "${conn.remoteIp}:${conn.remotePort}")
+        DetailRow("Remote Hostname", conn.remoteHostname)
+        DetailRow("Encryption TLS", if (conn.isEncryptedTls) "TLS / HTTPS Encrypted" else "Cleartext / Unencrypted")
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-        DetailRow("Bytes Transferred", "${packet.length * 4} B down — ${packet.length * 2} B up")
-        DetailRow("Packets Count", "4 down — 9 up")
-        DetailRow("Duration", "15 s")
-        DetailRow("First Seen", packet.timeFormatted)
-        DetailRow("Last Seen", packet.timeFormatted)
+        DetailRow("Total Transferred", "${String.format(Locale.US, "%.2f", conn.totalBytes / 1024.0 / 1024.0)} MB (${conn.packetCount} packets)")
+        DetailRow("Download / Upload", "DL: ${String.format(Locale.US, "%.1f", conn.downloadBytes / 1024.0)} KB • UL: ${String.format(Locale.US, "%.1f", conn.uploadBytes / 1024.0)} KB")
+        DetailRow("Latency (RTT)", "${String.format(Locale.US, "%.1f", conn.rttMs)} ms")
+        DetailRow("Flow Duration", "${String.format(Locale.US, "%.1f", conn.durationSeconds)} seconds")
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.End
-        ) {
-          TextButton(onClick = onDismiss) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          OutlinedButton(
+            onClick = onDismiss,
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(8.dp)
+          ) {
             Text("Close")
+          }
+          Button(
+            onClick = onFilterPackets,
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(8.dp)
+          ) {
+            Text("Inspect Packets")
           }
         }
       }

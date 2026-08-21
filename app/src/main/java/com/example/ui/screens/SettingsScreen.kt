@@ -58,7 +58,8 @@ fun SettingsScreen(
   notificationSettings: NotificationSettingEntity,
   onSaveNotificationSettings: (NotificationSettingEntity) -> Unit,
   onOpenTargetAppSelector: () -> Unit,
-  onOpenSslCertDialog: () -> Unit
+  onOpenSslCertDialog: () -> Unit,
+  onRequestVpnPermission: () -> Unit = {}
 ) {
   var settingsState by remember(notificationSettings) { mutableStateOf(notificationSettings) }
   val scrollState = rememberScrollState()
@@ -151,6 +152,57 @@ fun SettingsScreen(
       color = MaterialTheme.colorScheme.primary,
       modifier = Modifier.padding(bottom = 12.dp)
     )
+
+    // System VPN Permission & TUN Interface Status Section
+    Card(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(bottom = 16.dp)
+        .testTag("vpn_permission_card"),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      shape = RoundedCornerShape(12.dp),
+      elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+      Column(modifier = Modifier.padding(16.dp)) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+          ) {
+            Icon(
+              Icons.Default.Security,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+              Text(
+                "System VPN Permission",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+              )
+              Text(
+                "Grants access to create the virtual TUN interface",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+
+          OutlinedButton(
+            onClick = onRequestVpnPermission,
+            modifier = Modifier.testTag("request_vpn_permission_button")
+          ) {
+            Text("Verify / Grant")
+          }
+        }
+      }
+    }
 
     // Capture Target Applications Section
     Card(

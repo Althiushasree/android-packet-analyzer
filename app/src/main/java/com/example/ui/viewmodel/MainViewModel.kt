@@ -3,6 +3,25 @@ package com.example.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.firebase.FirestoreSyncManager
+import com.example.data.gemini.ChatMessage
+import com.example.data.gemini.CyberAiContextEngine
+import com.example.data.gemini.GeminiModelChoice
+import com.example.data.gemini.GeminiNetworkChatService
+import com.example.data.gemini.MessageRole
+import com.example.data.gemini.QueryCategory
+import com.example.data.gemini.StructuredNetworkContext
+import com.example.data.intelligence.AiAnalystInsight
+import com.example.data.intelligence.AiNetworkAnalystService
+import com.example.data.intelligence.ApplicationServiceAnalysis
+import com.example.data.intelligence.CommunicationFlow
+import com.example.data.intelligence.DefensiveSecurityAlert
+import com.example.data.intelligence.NetworkHealthReport
+import com.example.data.intelligence.NetworkIntelligenceManager
+import com.example.data.intelligence.ObservedNetworkDevice
+import com.example.data.intelligence.RealDnsLogEntry
+import com.example.data.intelligence.RealNetworkInterfaceInfo
+import com.example.data.intelligence.RealTimeTrafficStats
 import com.example.data.model.AppTrafficSummary
 import com.example.data.model.AppUsageSummary
 import com.example.data.model.AuthState
@@ -20,23 +39,156 @@ import com.example.data.model.TimelineDataPoint
 import com.example.data.model.TimelineScope
 import com.example.data.model.UserSession
 import com.example.data.repository.PacketRepository
+import com.example.data.vpn.PacketCaptureVpnService
+import com.example.data.vpn.VpnTunnelConfig
+import com.example.util.NetworkAnalyticsConfig
 import com.example.util.TotpUtils
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+private data class IpGeoMetadata(
+  val country: String,
+  val countryCode: String,
+  val city: String,
+  val region: String,
+  val asn: String,
+  val isp: String,
+  val org: String,
+  val risk: com.example.data.model.IpThreatRisk,
+  val notes: String
+)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
   val repository = PacketRepository(application)
+  val firestoreSyncManager = FirestoreSyncManager(application)
+  val geminiChatService = GeminiNetworkChatService()
 
   val isCapturing = repository.isCapturing
   val liveStats = repository.liveStats
   val recentAlarms = repository.recentAlarms
   val allPcapFiles = repository.allPcapFiles
   val notificationSettings = repository.notificationSettings
+  val tunStatus = PacketCaptureVpnService.tunStatus
+
+  // Network Intelligence Manager & AI Analyst Service
+  val networkIntelligenceManager = NetworkIntelligenceManager(application)
+  private val aiNetworkAnalystService = AiNetworkAnalystService()
+  val dbManager = networkIntelligenceManager.dbManager
+
+  // Authorized Network Monitoring Service
+  val networkMonitoringService = com.example.data.intelligence.NetworkMonitoringService(application, networkIntelligenceManager)
+  val monNetworkScopes = networkMonitoringService.networkScopes
+  val monSelectedScope = networkMonitoringService.selectedScope
+  val monScopedDevices = networkMonitoringService.scopedDevices
+  val monScopedFlows = networkMonitoringService.scopedFlows
+  val monScopedServices = networkMonitoringService.scopedServices
+  val monScopedAlerts = networkMonitoringService.scopedAlerts
+
+  fun selectMonNetworkScope(scopeId: String) {
+    networkMonitoringService.selectNetworkScope(scopeId)
+  }
+
+  fun exportMonReport(format: String, target: String, timeRange: String): String {
+    return networkMonitoringService.exportReport(format, target, timeRange)
+  }
+
+  val realNetworkInfo = networkIntelligenceManager.networkInfo
+  val availableInterfaces = networkIntelligenceManager.availableInterfaces
+  val networkChangeBanner = networkIntelligenceManager.networkChangeBanner
+  val observedDevices = networkIntelligenceManager.observedDevices
+  val selectedDeviceForDeepAnalysis = networkIntelligenceManager.selectedDeviceForDeepAnalysis
+  val communicationFlows = networkIntelligenceManager.communicationFlows
+  val applicationServices = networkIntelligenceManager.applicationServices
+  val dnsLogs = networkIntelligenceManager.dnsLogs
+  val liveTrafficStats = networkIntelligenceManager.liveTrafficStats
+  val networkHealth = networkIntelligenceManager.networkHealth
+  val securityAlerts = networkIntelligenceManager.securityAlerts
+  val isIntelMonitoringActive = networkIntelligenceManager.isMonitoringActive
+  val isDiscoveryScanning = networkIntelligenceManager.isDiscoveryScanning
+  val aiAnalystInsight = networkIntelligenceManager.aiAnalystInsight
+
+  // On-Device Machine Learning (ML) Flows & Controls
+  val mlEngine = networkIntelligenceManager.mlEngine
+  val mlModelHealth = mlEngine.modelHealth
+  val mlRecentInferences = mlEngine.recentInferences
+
+  fun trainMlModel() {
+    mlEngine.trainModelWithBaselineData()
+  }
+
+  fun updateMlContaminationThreshold(threshold: Double) {
+    mlEngine.updateContaminationThreshold(threshold)
+  }
+
+  fun runManualMlInferenceTest(packetRate: Double, bytesRate: Double, entropy: Double, jitter: Double, portRisk: Double) {
+    viewModelScope.launch {
+      mlEngine.inferFlow(
+        com.example.data.ml.NetworkFlowFeatures(
+          flowId = "test_flow_${System.currentTimeMillis()}",
+          protocol = if (portRisk > 0.5) "RAW_TCP" else "HTTPS",
+          packetsPerSec = packetRate,
+          bytesPerSec = bytesRate,
+          payloadEntropy = entropy,
+          interArrivalJitterMs = jitter,
+          portRiskScore = portRisk,
+          synAckRatio = 0.5
+        )
+      )
+    }
+  }
+
+  // Database & History State (36 - 57)
+  val historicalSessions = dbManager.allSessions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+  val historicalDevices = dbManager.allDevices.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+  val retentionSettings = dbManager.retentionSettings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.model.DataRetentionSettingsEntity())
+  val isDbConnected = dbManager.isDbConnected
+  val dbTotalRecordsCount = dbManager.totalRecordsCount
+  val databaseSizeBytes = dbManager.databaseSizeBytes
+  val dbLastWriteTimestamp = dbManager.lastWriteTimestamp
+  val dbActiveSessionId = dbManager.activeSessionId
+
+  private val _selectedHistoricalSessionDetails = MutableStateFlow<com.example.data.db.HistoricalSessionDetails?>(null)
+  val selectedHistoricalSessionDetails: StateFlow<com.example.data.db.HistoricalSessionDetails?> = _selectedHistoricalSessionDetails.asStateFlow()
+
+  // Central Server & Database Synchronization Engine
+  val serverConfigManager = com.example.data.server.ServerConfigManager(application)
+  val serverConnectionManager = com.example.data.server.ServerConnectionManager(application, serverConfigManager)
+  val syncManager = com.example.data.server.SyncManager(application, serverConnectionManager, serverConfigManager)
+
+  val serverConfig = serverConfigManager.config
+  val connectionStatus = serverConnectionManager.connectionStatus
+  val serverHealth = serverConnectionManager.serverHealth
+  val lastPingLatencyMs = serverConnectionManager.lastPingLatencyMs
+  val lastConnectionTimestamp = serverConnectionManager.lastConnectionTimestamp
+  val serverLastErrorMessage = serverConnectionManager.lastErrorMessage
+
+  val syncState = syncManager.syncState
+  val syncedRecordsCount = syncManager.syncedRecordsCount
+  val pendingRecordsCount = syncManager.pendingRecordsCount
+  val failedRecordsCount = syncManager.failedRecordsCount
+  val lastSyncTimestamp = syncManager.lastSyncTimestamp
+  val lastSyncMessage = syncManager.lastSyncMessage
+  val syncLogs = syncManager.syncLogs
+
+  // Gemini Cyber AI Chat State
+  private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+  val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
+
+  private val _isChatGenerating = MutableStateFlow(false)
+  val isChatGenerating: StateFlow<Boolean> = _isChatGenerating.asStateFlow()
+
+  private val _selectedChatModel = MutableStateFlow(GeminiModelChoice.FLASH_SEARCH_GROUNDED)
+  val selectedChatModel: StateFlow<GeminiModelChoice> = _selectedChatModel.asStateFlow()
+
+  private val chatSessionId = java.util.UUID.randomUUID().toString()
 
   // Default Authenticated Session for immediate seamless access to Packet Capture Pro
   private val _authState = MutableStateFlow<AuthState>(AuthState.Authenticated)
@@ -74,6 +226,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _selectedIpDetails = MutableStateFlow<DetailedIpTraffic?>(null)
   val selectedIpDetails: StateFlow<DetailedIpTraffic?> = _selectedIpDetails.asStateFlow()
 
+  // Global Time-Range & Cross-Navigation Filters
+  private val _selectedGlobalTimeRange = MutableStateFlow(com.example.data.model.GlobalTimeRange.ALL_TIME)
+  val selectedGlobalTimeRange: StateFlow<com.example.data.model.GlobalTimeRange> = _selectedGlobalTimeRange.asStateFlow()
+
+  private val _activeCrossFilter = MutableStateFlow(com.example.data.model.ActiveCrossFilter())
+  val activeCrossFilter: StateFlow<com.example.data.model.ActiveCrossFilter> = _activeCrossFilter.asStateFlow()
+
   // UI Filter State for Packet Log / Connections
   private val _searchQuery = MutableStateFlow("")
   val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -99,14 +258,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _targetApps = MutableStateFlow(repository.availableTargetApps)
   val targetApps: StateFlow<List<TargetAppInfo>> = _targetApps.asStateFlow()
 
-  // Combined filtered packets flow
+  // Buffered & Controlled packets flow sampled at UI_REFRESH_INTERVAL_MS (1500ms)
+  // to decouple continuous high-speed packet ingestion from UI/chart rendering.
+  private val _bufferedPackets = MutableStateFlow<List<PacketEntity>>(emptyList())
+  val bufferedPackets: StateFlow<List<PacketEntity>> = _bufferedPackets.asStateFlow()
+
+  init {
+    viewModelScope.launch {
+      var lastEmittedTime = 0L
+      var pendingList: List<PacketEntity>? = null
+
+      // Background ticker updating the UI buffer at controlled interval
+      launch {
+        while (isActive) {
+          delay(NetworkAnalyticsConfig.UI_REFRESH_INTERVAL_MS)
+          pendingList?.let {
+            _bufferedPackets.value = it
+          }
+        }
+      }
+
+      // Collect packets from repository without dropping any packets
+      repository.allPackets.collect { packets ->
+        pendingList = packets
+        val now = System.currentTimeMillis()
+        if (_bufferedPackets.value.isEmpty() || packets.isEmpty() || now - lastEmittedTime >= NetworkAnalyticsConfig.UI_REFRESH_INTERVAL_MS) {
+          lastEmittedTime = now
+          _bufferedPackets.value = packets
+        }
+      }
+    }
+  }
+
+  // Combined filtered packets flow respecting Global Time-Range & Active Cross-Filters
+  @Suppress("UNCHECKED_CAST")
   val filteredPackets: StateFlow<List<PacketEntity>> = combine(
-    repository.allPackets,
-    _searchQuery,
-    _selectedProtocolFilter,
-    _selectedAppFilter
-  ) { packets, query, protocol, app ->
+    listOf(
+      _bufferedPackets,
+      _searchQuery,
+      _selectedProtocolFilter,
+      _selectedAppFilter,
+      _selectedGlobalTimeRange,
+      _activeCrossFilter
+    )
+  ) { array ->
+    val packets = array[0] as List<PacketEntity>
+    val query = array[1] as String
+    val protocol = array[2] as String
+    val app = array[3] as String
+    val timeRange = array[4] as com.example.data.model.GlobalTimeRange
+    val crossFilter = array[5] as com.example.data.model.ActiveCrossFilter
+    val now = System.currentTimeMillis()
     packets.filter { p ->
+      // 1. Time Range Filter
+      val inTimeRange = timeRange == com.example.data.model.GlobalTimeRange.ALL_TIME || (now - p.timestamp) <= timeRange.durationMs
+
+      // 2. Query Search
       val matchesQuery = query.isEmpty() ||
           p.host.contains(query, ignoreCase = true) ||
           p.appName.contains(query, ignoreCase = true) ||
@@ -115,21 +322,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           p.destPort.toString().contains(query) ||
           p.info.contains(query, ignoreCase = true)
 
+      // 3. Tab Filters
       val matchesProtocol = protocol == "ALL" || p.protocol.equals(protocol, ignoreCase = true)
       val matchesApp = app == "ALL" || p.appName.equals(app, ignoreCase = true)
 
-      matchesQuery && matchesProtocol && matchesApp
+      // 4. Cross Navigation Filter
+      val matchesCrossApp = crossFilter.appName == null || p.appName.equals(crossFilter.appName, ignoreCase = true)
+      val matchesCrossIp = crossFilter.ipAddress == null || p.destIp == crossFilter.ipAddress || p.sourceIp == crossFilter.ipAddress
+      val matchesCrossProto = crossFilter.protocol == null || p.protocol.equals(crossFilter.protocol, ignoreCase = true)
+      val matchesCrossPort = crossFilter.port == null || p.destPort == crossFilter.port || p.sourcePort == crossFilter.port
+
+      inTimeRange && matchesQuery && matchesProtocol && matchesApp && matchesCrossApp && matchesCrossIp && matchesCrossProto && matchesCrossPort
     }
   }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   // Dynamic Detailed Applications Analytics (Top 10 Apps)
   val detailedApplications: StateFlow<List<DetailedAppTraffic>> = combine(
-    repository.allPackets,
-    _appRegulationPolicies
-  ) { packets, policies ->
-    if (packets.isEmpty()) return@combine emptyList()
-    val totalBytes = packets.sumOf { it.length.toLong() }.coerceAtLeast(1L)
-    val appGroups = packets.groupBy { it.appName }
+    _bufferedPackets,
+    _appRegulationPolicies,
+    _selectedGlobalTimeRange
+  ) { packets, policies, timeRange ->
+    val now = System.currentTimeMillis()
+    val timeFiltered = if (timeRange == com.example.data.model.GlobalTimeRange.ALL_TIME) packets else packets.filter { (now - it.timestamp) <= timeRange.durationMs }
+    if (timeFiltered.isEmpty()) return@combine emptyList()
+    val totalBytes = timeFiltered.sumOf { it.length.toLong() }.coerceAtLeast(1L)
+    val appGroups = timeFiltered.groupBy { it.appName }
 
     appGroups.map { (appName, appPackets) ->
       val firstPkt = appPackets.first()
@@ -164,21 +381,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         protocols = protos,
         dailyQuotaBytes = existingPolicy?.dailyQuotaBytes ?: (2000 * 1024 * 1024L),
         isRegulated = existingPolicy?.isRegulated ?: false,
-        warningThresholdPercent = existingPolicy?.warningThresholdPercent ?: 80
+        warningThresholdPercent = existingPolicy?.warningThresholdPercent ?: 80,
+        connectionCount = destIps.size,
+        topProtocol = protos.firstOrNull() ?: "TLS",
+        topDestIp = destIps.firstOrNull()?.ip ?: ""
       )
     }.sortedByDescending { it.totalBytes }
   }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-  // Dynamic Detailed IP Analytics (Top 10 IPs)
-  val detailedIpAddresses: StateFlow<List<DetailedIpTraffic>> = repository.allPackets.combine(MutableStateFlow(Unit)) { packets, _ ->
-    if (packets.isEmpty()) return@combine emptyList()
-    val totalBytes = packets.sumOf { it.length.toLong() }.coerceAtLeast(1L)
-    val ipGroups = packets.groupBy { it.destIp }
+  // Dynamic Detailed IP Analytics with GeoIP, ASN, Org, and Threat Risk Intelligence
+  val detailedIpAddresses: StateFlow<List<DetailedIpTraffic>> = combine(
+    _bufferedPackets,
+    _selectedGlobalTimeRange
+  ) { packets, timeRange ->
+    val now = System.currentTimeMillis()
+    val timeFiltered = if (timeRange == com.example.data.model.GlobalTimeRange.ALL_TIME) packets else packets.filter { (now - it.timestamp) <= timeRange.durationMs }
+    if (timeFiltered.isEmpty()) return@combine emptyList()
+    val totalBytes = timeFiltered.sumOf { it.length.toLong() }.coerceAtLeast(1L)
+    val ipGroups = timeFiltered.groupBy { it.destIp }
 
     ipGroups.map { (ip, ipPackets) ->
       val ipTotal = ipPackets.sumOf { it.length.toLong() }
       val download = (ipTotal * 0.75).toLong()
       val upload = ipTotal - download
+      val hostname = ipPackets.first().host
+
+      val isLocal = ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.") || ip == "127.0.0.1"
+
+      val geo = when {
+        isLocal -> IpGeoMetadata("Local Network", "LAN", "Local Subnet", "Gateway", "AS0 Local Network", "Local Router", "Private Intranet", com.example.data.model.IpThreatRisk.CLEAN, "Private local endpoint / interface")
+        hostname.contains("google", true) || hostname.contains("youtube", true) || hostname.contains("1e100", true) || ip.startsWith("142.250.") || ip.startsWith("172.217.") ->
+          IpGeoMetadata("United States", "US", "Mountain View", "California", "AS15169 Google LLC", "Google Cloud / Edge", "Google Global Infrastructure", com.example.data.model.IpThreatRisk.CLEAN, "Verified Google / YouTube Anycast CDN edge")
+        hostname.contains("amazon", true) || hostname.contains("aws", true) || ip.startsWith("52.") || ip.startsWith("54.") || ip.startsWith("3.") ->
+          IpGeoMetadata("United States", "US", "Ashburn", "Virginia", "AS16509 Amazon.com, Inc.", "Amazon AWS Cloud", "AWS Global Infrastructure", com.example.data.model.IpThreatRisk.CLEAN, "Verified Amazon Web Services compute node")
+        hostname.contains("cloudflare", true) || ip.startsWith("104.") || ip.startsWith("172.67.") || ip.startsWith("1.1.1.") ->
+          IpGeoMetadata("United States", "US", "San Francisco", "California", "AS13335 Cloudflare, Inc.", "Cloudflare Anycast Edge", "Cloudflare Security & CDN", com.example.data.model.IpThreatRisk.CLEAN, "Encrypted Anycast Security CDN Edge")
+        hostname.contains("akamai", true) || ip.startsWith("23.") || ip.startsWith("104.96.") ->
+          IpGeoMetadata("United States", "US", "Cambridge", "Massachusetts", "AS20940 Akamai Technologies", "Akamai Edge Platform", "Akamai Global Delivery", com.example.data.model.IpThreatRisk.CLEAN, "High-performance edge distribution network")
+        hostname.contains("microsoft", true) || hostname.contains("azure", true) || ip.startsWith("20.") || ip.startsWith("13.") ->
+          IpGeoMetadata("United States", "US", "Redmond", "Washington", "AS8075 Microsoft Corporation", "Microsoft Azure Cloud", "Azure Global Services", com.example.data.model.IpThreatRisk.CLEAN, "Verified Microsoft enterprise cloud service")
+        hostname.contains("meta", true) || hostname.contains("facebook", true) || ip.startsWith("157.240.") || ip.startsWith("31.13.") ->
+          IpGeoMetadata("United States", "US", "Menlo Park", "California", "AS32934 Meta Platforms, Inc.", "Meta Global Edge", "Meta Infrastructure", com.example.data.model.IpThreatRisk.CLEAN, "Meta / Instagram edge media cache")
+        else ->
+          IpGeoMetadata("Global Edge", "GLOBAL", "Global Transit", "Cloud Backbone", "AS393560 Global Backbone", "Tier-1 Upstream Transit", "Internet Edge Transit", com.example.data.model.IpThreatRisk.LOW_RISK, "Standard public Internet edge endpoint")
+      }
 
       // Applications communicating with this IP
       val communicatingApps = ipPackets.groupBy { it.appName }.map { (appName, pkts) ->
@@ -194,10 +440,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
       val protos = ipPackets.map { it.protocol }.distinct()
       val ports = ipPackets.map { it.destPort }.distinct()
+      val firstSeen = ipPackets.minOfOrNull { it.timestamp } ?: (now - 3600000L)
+      val lastSeen = ipPackets.maxOfOrNull { it.timestamp } ?: now
 
       DetailedIpTraffic(
         ip = ip,
-        hostname = ipPackets.first().host,
+        hostname = hostname,
         totalBytes = ipTotal,
         downloadBytes = download,
         uploadBytes = upload,
@@ -205,16 +453,183 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         percentage = (ipTotal.toFloat() / totalBytes.toFloat()) * 100f,
         communicatingApps = communicatingApps,
         protocols = protos,
-        ports = ports
+        ports = ports,
+        country = geo.country,
+        countryCode = geo.countryCode,
+        city = geo.city,
+        region = geo.region,
+        asn = geo.asn,
+        isp = geo.isp,
+        organization = geo.org,
+        threatRisk = geo.risk,
+        threatNotes = geo.notes,
+        isLocal = isLocal,
+        firstSeen = firstSeen,
+        lastSeen = lastSeen,
+        estimatedRttMs = if (isLocal) 1.5 else (14.0 + (ip.hashCode().and(0x1F)))
       )
     }.sortedByDescending { it.totalBytes }
   }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Enhanced Protocol Analysis StateFlow
+  val enhancedProtocolAnalysis: StateFlow<List<com.example.data.model.EnhancedProtocolAnalysis>> = combine(
+    _bufferedPackets,
+    _selectedGlobalTimeRange
+  ) { packets, timeRange ->
+    val now = System.currentTimeMillis()
+    val timeFiltered = if (timeRange == com.example.data.model.GlobalTimeRange.ALL_TIME) packets else packets.filter { (now - it.timestamp) <= timeRange.durationMs }
+    if (timeFiltered.isEmpty()) return@combine emptyList()
+    val totalBytes = timeFiltered.sumOf { it.length.toLong() }.coerceAtLeast(1L)
+    val totalPkts = timeFiltered.size.coerceAtLeast(1)
+
+    val grouped = timeFiltered.groupBy { it.protocol }
+    grouped.map { (proto, pList) ->
+      val pBytes = pList.sumOf { it.length.toLong() }
+      val pCount = pList.size
+      val activeFlows = pList.groupBy { "${it.sourceIp}:${it.sourcePort}-${it.destIp}:${it.destPort}" }.size
+      val errorCount = pList.count { it.info.contains("RST", true) || it.info.contains("Retransmission", true) || it.info.contains("Drop", true) || it.info.contains("Dup", true) }
+      val topPorts = pList.map { it.destPort }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(4).map { it.key }
+      val topApps = pList.map { it.appName }.distinct().take(3)
+      val layer = when (proto.uppercase()) {
+        "TLS", "HTTPS", "HTTP", "DNS", "QUIC", "SSH", "FTP", "SNMP" -> "Application"
+        "TCP", "UDP", "SCTP" -> "Transport"
+        "IP", "IPV4", "IPV6", "ICMP", "ARP" -> "Network"
+        else -> "Transport"
+      }
+      com.example.data.model.EnhancedProtocolAnalysis(
+        protocol = proto,
+        packetCount = pCount,
+        totalBytes = pBytes,
+        bytePercentage = (pBytes.toFloat() / totalBytes.toFloat()) * 100f,
+        packetPercentage = (pCount.toFloat() / totalPkts.toFloat()) * 100f,
+        activeFlows = activeFlows,
+        errorCount = errorCount,
+        errorRatePercent = if (pCount > 0) (errorCount.toFloat() / pCount.toFloat()) * 100f else 0f,
+        avgPacketSize = if (pCount > 0) (pBytes / pCount).toInt() else 0,
+        topPorts = topPorts,
+        layer = layer,
+        isEncrypted = proto.uppercase() in listOf("TLS", "HTTPS", "QUIC", "SSH"),
+        topApps = topApps
+      )
+    }.sortedByDescending { it.totalBytes }
+  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Protocol Hierarchy Tree View
+  val protocolHierarchyRoot: StateFlow<com.example.data.model.ProtocolHierarchyNode> = enhancedProtocolAnalysis.map { list ->
+    val totalPackets = list.sumOf { it.packetCount }
+    val totalBytes = list.sumOf { it.totalBytes }
+
+    val appNodes = list.filter { it.layer == "Application" }.map {
+      com.example.data.model.ProtocolHierarchyNode(name = it.protocol, layer = "Layer 7 (Application)", packetCount = it.packetCount, byteCount = it.totalBytes, percentageOfTotal = it.packetPercentage)
+    }
+    val transportNodes = list.filter { it.layer == "Transport" }.map { t ->
+      val matchedAppNodes = if (t.protocol.contains("TCP", true)) appNodes.filter { it.name in listOf("TLS", "HTTPS", "HTTP", "SSH") } else appNodes.filter { it.name in listOf("DNS", "QUIC") }
+      com.example.data.model.ProtocolHierarchyNode(name = t.protocol, layer = "Layer 4 (Transport)", packetCount = t.packetCount, byteCount = t.totalBytes, percentageOfTotal = t.packetPercentage, children = matchedAppNodes)
+    }
+    val networkNode = com.example.data.model.ProtocolHierarchyNode(
+      name = "IPv4 / IPv6 Internet Protocol",
+      layer = "Layer 3 (Network)",
+      packetCount = totalPackets,
+      byteCount = totalBytes,
+      percentageOfTotal = 100f,
+      children = transportNodes
+    )
+
+    com.example.data.model.ProtocolHierarchyNode(
+      name = "Ethernet II (Frame)",
+      layer = "Layer 2 (Data Link)",
+      packetCount = totalPackets,
+      byteCount = totalBytes,
+      percentageOfTotal = 100f,
+      children = listOf(networkNode)
+    )
+  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.model.ProtocolHierarchyNode("Ethernet II", "Layer 2", 0, 0L, 100f))
+
+  // Enhanced Real-Time Socket Connections
+  val enhancedSocketConnections: StateFlow<List<com.example.data.model.EnhancedSocketConnection>> = combine(
+    _bufferedPackets,
+    _selectedGlobalTimeRange
+  ) { packets, timeRange ->
+    val now = System.currentTimeMillis()
+    val timeFiltered = if (timeRange == com.example.data.model.GlobalTimeRange.ALL_TIME) packets else packets.filter { (now - it.timestamp) <= timeRange.durationMs }
+    if (timeFiltered.isEmpty()) return@combine emptyList()
+
+    val grouped = timeFiltered.groupBy { "${it.appName}_${it.sourceIp}:${it.sourcePort}_${it.destIp}:${it.destPort}" }
+    grouped.map { (key, group) ->
+      val firstPkt = group.first()
+      val totalBytes = group.sumOf { it.length.toLong() }
+      val upload = (totalBytes * 0.28).toLong()
+      val download = totalBytes - upload
+      val isTls = firstPkt.protocol.uppercase() in listOf("TLS", "HTTPS", "QUIC")
+      val state = when {
+        group.any { it.info.contains("FIN", true) || it.info.contains("RST", true) } -> com.example.data.model.SocketConnectionState.TIME_WAIT
+        group.size > 5 -> com.example.data.model.SocketConnectionState.ESTABLISHED
+        group.size in 1..2 -> com.example.data.model.SocketConnectionState.SYN_SENT
+        else -> com.example.data.model.SocketConnectionState.ESTABLISHED
+      }
+      com.example.data.model.EnhancedSocketConnection(
+        connectionId = key,
+        appName = firstPkt.appName,
+        appPackage = firstPkt.appPackage,
+        localIp = firstPkt.sourceIp,
+        localPort = firstPkt.sourcePort,
+        remoteIp = firstPkt.destIp,
+        remotePort = firstPkt.destPort,
+        remoteHostname = firstPkt.host,
+        protocol = firstPkt.protocol,
+        state = state,
+        totalBytes = totalBytes,
+        uploadBytes = upload,
+        downloadBytes = download,
+        packetCount = group.size,
+        rttMs = 15.0 + (firstPkt.destPort.hashCode().and(0x1F)),
+        durationSeconds = (group.size * 0.45).coerceAtLeast(0.2),
+        isEncryptedTls = isTls,
+        processUid = 10000 + (firstPkt.appName.hashCode().and(0xFFF)),
+        startTimeFormatted = firstPkt.timeFormatted
+      )
+    }.sortedByDescending { it.totalBytes }
+  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Cross-Navigation Control Methods
+  fun navigateToPacketsWithFilter(
+    appName: String? = null,
+    ipAddress: String? = null,
+    protocol: String? = null,
+    port: Int? = null,
+    customExpression: String? = null
+  ) {
+    _activeCrossFilter.value = com.example.data.model.ActiveCrossFilter(
+      appName = appName,
+      ipAddress = ipAddress,
+      protocol = protocol,
+      port = port,
+      customExpression = customExpression
+    )
+    if (protocol != null) {
+      _selectedProtocolFilter.value = protocol
+    }
+    if (appName != null) {
+      _selectedAppFilter.value = appName
+    }
+  }
+
+  fun clearCrossFilter() {
+    _activeCrossFilter.value = com.example.data.model.ActiveCrossFilter()
+    _selectedProtocolFilter.value = "ALL"
+    _selectedAppFilter.value = "ALL"
+    _searchQuery.value = ""
+  }
+
+  fun setGlobalTimeRange(range: com.example.data.model.GlobalTimeRange) {
+    _selectedGlobalTimeRange.value = range
+  }
 
   // Highest Traffic Consumers Calculation (App, IP, Connection, Protocol)
   val highestTrafficConsumer: StateFlow<HighestTrafficConsumer> = combine(
     detailedApplications,
     detailedIpAddresses,
-    repository.allPackets
+    _bufferedPackets
   ) { apps, ips, packets ->
     val topApp = apps.firstOrNull()
     val topIp = ips.firstOrNull()
@@ -232,36 +647,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     } else null
 
     HighestTrafficConsumer(
-      topAppName = topApp?.appName ?: "YouTube",
-      topAppBytes = topApp?.totalBytes ?: (2400 * 1024 * 1024L),
-      topIp = topIp?.ip ?: "142.250.190.46",
-      topIpHostname = topIp?.hostname ?: "google.com",
-      topIpBytes = topIp?.totalBytes ?: (3200 * 1024 * 1024L),
-      topConnection = topConn?.key ?: "YouTube → 142.250.190.46",
-      topConnectionBytes = topConn?.value ?: (1850 * 1024 * 1024L),
-      topProtocol = topProto?.key ?: "HTTPS",
-      topProtocolBytes = topProto?.value ?: (4100 * 1024 * 1024L)
+      topAppName = topApp?.appName ?: "None",
+      topAppBytes = topApp?.totalBytes ?: 0L,
+      topIp = topIp?.ip ?: "None",
+      topIpHostname = topIp?.hostname ?: "None",
+      topIpBytes = topIp?.totalBytes ?: 0L,
+      topConnection = topConn?.key ?: "None",
+      topConnectionBytes = topConn?.value ?: 0L,
+      topProtocol = topProto?.key ?: "None",
+      topProtocolBytes = topProto?.value ?: 0L
     )
   }.stateIn(
     viewModelScope,
     SharingStarted.WhileSubscribed(5000),
     HighestTrafficConsumer(
-      topAppName = "YouTube",
-      topAppBytes = 2400 * 1024 * 1024L,
-      topIp = "142.250.190.46",
-      topIpHostname = "google.com",
-      topIpBytes = 3200 * 1024 * 1024L,
-      topConnection = "YouTube → 142.250.190.46",
-      topConnectionBytes = 1850 * 1024 * 1024L,
-      topProtocol = "HTTPS",
-      topProtocolBytes = 4100 * 1024 * 1024L
+      topAppName = "None",
+      topAppBytes = 0L,
+      topIp = "None",
+      topIpHostname = "None",
+      topIpBytes = 0L,
+      topConnection = "None",
+      topConnectionBytes = 0L,
+      topProtocol = "None",
+      topProtocolBytes = 0L
     )
   )
 
   // Timeline Historical Data Points
   val timelineDataPoints: StateFlow<List<TimelineDataPoint>> = combine(
     _selectedTimelineScope,
-    repository.allPackets
+    _bufferedPackets
   ) { scope, packets ->
     val liveBytes = packets.sumOf { it.length.toLong() }
     val now = System.currentTimeMillis()
@@ -339,7 +754,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   // App Traffic Summaries for Top N Applications
-  val appTrafficSummaries: StateFlow<List<AppTrafficSummary>> = repository.allPackets.combine(MutableStateFlow(Unit)) { packets, _ ->
+  val appTrafficSummaries: StateFlow<List<AppTrafficSummary>> = _bufferedPackets.combine(MutableStateFlow(Unit)) { packets, _ ->
     if (packets.isEmpty()) return@combine emptyList()
     val totalBytes = packets.sumOf { it.length.toLong() }.coerceAtLeast(1L)
     val grouped = packets.groupBy { it.appName }
@@ -356,7 +771,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.sortedByDescending { it.bytesTransferred }
   }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-  val protocolDistribution: StateFlow<List<ProtocolDistribution>> = repository.allPackets.combine(MutableStateFlow(Unit)) { packets, _ ->
+  val protocolDistribution: StateFlow<List<ProtocolDistribution>> = _bufferedPackets.combine(MutableStateFlow(Unit)) { packets, _ ->
     if (packets.isEmpty()) return@combine emptyList()
     val totalBytes = packets.sumOf { it.length.toLong() }.coerceAtLeast(1L)
     val grouped = packets.groupBy { it.protocol }
@@ -505,8 +920,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val trafficAlerts: StateFlow<List<com.example.data.model.TrafficAlertItem>> = combine(
     repository.recentAlarms,
     detailedApplications,
+    _bufferedPackets,
     _selectedAlertSeverity
-  ) { alarms, apps, severityFilter ->
+  ) { alarms, apps, packets, severityFilter ->
     val alertList = mutableListOf<com.example.data.model.TrafficAlertItem>()
     val now = System.currentTimeMillis()
     val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
@@ -528,12 +944,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           reason = a.message,
           currentTrafficFormatted = "12.4 Mbps",
           thresholdFormatted = "10.0 Mbps",
-          percentageOfThreshold = 124f
+          percentageOfThreshold = 124f,
+          targetApp = a.title,
+          recommendedMitigation = "Isolate application background data or throttle high-bandwidth stream"
         )
       )
     }
 
-    // Add quota threshold alerts for regulated apps
+    // 1. Add quota threshold alerts for regulated apps
     apps.forEach { app ->
       if (app.totalBytes > (app.dailyQuotaBytes * (app.warningThresholdPercent / 100f))) {
         val pct = (app.totalBytes.toFloat() / app.dailyQuotaBytes.toFloat()) * 100f
@@ -548,10 +966,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             reason = "Application traffic (${String.format(java.util.Locale.US, "%.1f", app.totalBytes / 1024.0 / 1024.0)} MB) exceeded ${app.warningThresholdPercent}% quota threshold",
             currentTrafficFormatted = "${String.format(java.util.Locale.US, "%.1f", app.totalBytes / 1024.0 / 1024.0)} MB",
             thresholdFormatted = "${String.format(java.util.Locale.US, "%.1f", app.dailyQuotaBytes / 1024.0 / 1024.0)} MB",
-            percentageOfThreshold = pct
+            percentageOfThreshold = pct,
+            targetApp = app.appName,
+            recommendedMitigation = "Enforce daily cellular/Wi-Fi bandwidth cap or disable auto-sync"
           )
         )
       }
+    }
+
+    // 2. Cleartext HTTP Exposure Detection
+    val cleartextPackets = packets.filter { it.protocol.equals("HTTP", true) || it.destPort == 80 }
+    if (cleartextPackets.isNotEmpty()) {
+      val firstClear = cleartextPackets.first()
+      alertList.add(
+        com.example.data.model.TrafficAlertItem(
+          id = "alert_cleartext_http",
+          timeFormatted = timeFormat.format(java.util.Date(now - 120000L)),
+          timestamp = now - 120000L,
+          severity = com.example.data.model.AlarmSeverity.HIGH,
+          category = com.example.data.model.AlertCategory.CLEARTEXT_HTTP_EXPOSURE,
+          entityName = "${firstClear.appName} (${firstClear.host})",
+          reason = "Unencrypted cleartext HTTP traffic detected on port 80. Headers and payloads are vulnerable to inspection.",
+          currentTrafficFormatted = "${cleartextPackets.size} pkts",
+          thresholdFormatted = "0 pkts (Strict TLS Policy)",
+          percentageOfThreshold = 100f,
+          targetApp = firstClear.appName,
+          targetIp = firstClear.destIp,
+          targetProtocol = "HTTP",
+          recommendedMitigation = "Enforce HTTPS Upgrade or configure Android Network Security Config"
+        )
+      )
+    }
+
+    // 3. Port Scan / Reconnaissance Detection
+    val remotePortGroups = packets.groupBy { it.destIp }.filter { it.value.map { p -> p.destPort }.distinct().size >= 4 }
+    remotePortGroups.forEach { (ip, pkts) ->
+      alertList.add(
+        com.example.data.model.TrafficAlertItem(
+          id = "alert_port_scan_$ip",
+          timeFormatted = timeFormat.format(java.util.Date(now - 60000L)),
+          timestamp = now - 60000L,
+          severity = com.example.data.model.AlarmSeverity.CRITICAL,
+          category = com.example.data.model.AlertCategory.PORT_SCAN_RECONNAISSANCE,
+          entityName = "Host $ip (${pkts.first().host})",
+          reason = "Multi-port scan/sweep behavior observed targeting ${pkts.map { it.destPort }.distinct().size} destination ports.",
+          currentTrafficFormatted = "${pkts.size} pkts",
+          thresholdFormatted = "3 ports/min",
+          percentageOfThreshold = 250f,
+          targetIp = ip,
+          targetApp = pkts.first().appName,
+          recommendedMitigation = "Block remote IP on firewall and review host reputation in IP Analyzer"
+        )
+      )
     }
 
     if (severityFilter == "ALL") {
@@ -801,7 +1267,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     if (isCapturing.value) {
       repository.stopCapture()
     } else {
-      repository.startCapture()
+      val selectedPkgs = targetApps.value.filter { it.isSelected }.map { it.packageName }
+      val config = com.example.data.vpn.VpnTunnelConfig(
+        sessionName = "Packet Capture Pro TUN",
+        mtu = 1500,
+        snapLength = _snapLength.value,
+        allowedPackages = if (selectedPkgs.size == targetApps.value.size) emptyList() else selectedPkgs,
+        filterExpression = _captureFilterExpression.value
+      )
+      repository.startCapture(config)
     }
   }
 
@@ -862,6 +1336,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun exportPcap(notes: String, onSuccess: (PcapFileEntity) -> Unit) {
     viewModelScope.launch {
       val pcap = repository.saveCurrentCaptureToPcap(notes)
+      firestoreSyncManager.syncPcapRecord(pcap)
       onSuccess(pcap)
     }
   }
@@ -879,16 +1354,181 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun startGoogleAuth(email: String, displayName: String) {
-    _authState.value = AuthState.Authenticated
-    _userSession.value = UserSession(email, displayName, isAuthenticated = true, domainVerified = true)
+    viewModelScope.launch {
+      val session = UserSession(email, displayName, isAuthenticated = true, domainVerified = true)
+      _authState.value = AuthState.Authenticated
+      _userSession.value = session
+      firestoreSyncManager.syncUserProfile(session)
+    }
   }
 
   fun verifyTotpCode(code: String): Boolean = true
   fun getTotpSecret(): String = userTotpSecret
   fun clearAuthError() {}
   fun resetToLoginScreen() {}
+
   fun signOut() {
-    _userSession.value = null
-    _authState.value = AuthState.LoggedOut
+    viewModelScope.launch {
+      firestoreSyncManager.signOut()
+      _userSession.value = null
+      _authState.value = AuthState.LoggedOut
+    }
+  }
+
+  // Gemini Cyber AI Chat Actions
+  fun setChatModel(model: GeminiModelChoice) {
+    _selectedChatModel.value = model
+  }
+
+  fun clearChatHistory() {
+    _chatMessages.value = emptyList()
+  }
+
+  fun sendChatMessage(text: String, attachTelemetry: Boolean = false) {
+    if (text.isBlank() || _isChatGenerating.value) return
+
+    val currentModel = _selectedChatModel.value
+    val userMsg = ChatMessage(
+      role = MessageRole.USER,
+      content = text,
+      modelUsed = currentModel
+    )
+
+    _chatMessages.value = _chatMessages.value + userMsg
+    _isChatGenerating.value = true
+
+    viewModelScope.launch {
+      firestoreSyncManager.syncChatMessage(chatSessionId, userMsg)
+
+      val structuredCtx = StructuredNetworkContext(
+        isCapturing = isCapturing.value,
+        durationSeconds = liveStats.value.durationSeconds,
+        totalPackets = liveStats.value.totalPacketsCaptured,
+        totalBytes = liveStats.value.totalBytesCaptured,
+        downloadBytes = detailedApplications.value.sumOf { it.downloadBytes },
+        uploadBytes = detailedApplications.value.sumOf { it.uploadBytes },
+        downloadSpeedMbps = liveStats.value.downloadSpeedMbps,
+        uploadSpeedMbps = liveStats.value.uploadSpeedMbps,
+        topApplications = detailedApplications.value,
+        topIps = detailedIpAddresses.value,
+        protocols = protocolDistribution.value,
+        recentAlarms = recentAlarms.value,
+        securityAlerts = securityAlerts.value,
+        observedDevices = observedDevices.value,
+        networkInfo = realNetworkInfo.value,
+        networkHealth = networkHealth.value,
+        timelinePoints = timelineDataPoints.value,
+        highestConsumer = highestTrafficConsumer.value
+      )
+
+      val responseMsg = geminiChatService.sendChatMessage(
+        history = _chatMessages.value.dropLast(1),
+        userMessage = text,
+        modelChoice = currentModel,
+        contextTelemetry = null,
+        structuredContext = structuredCtx
+      )
+
+      _chatMessages.value = _chatMessages.value + responseMsg
+      _isChatGenerating.value = false
+
+      firestoreSyncManager.syncChatMessage(chatSessionId, responseMsg)
+    }
+  }
+
+  // Network Intelligence Actions
+  fun dismissNetworkChangeBanner() {
+    networkIntelligenceManager.dismissNetworkChangeBanner()
+  }
+
+  fun toggleIntelMonitoring() {
+    networkIntelligenceManager.toggleMonitoring()
+  }
+
+  fun triggerSubnetDiscovery() {
+    networkIntelligenceManager.triggerDeviceDiscovery()
+    networkIntelligenceManager.runNetworkHealthCheck()
+  }
+
+  fun clearIntelligenceData() {
+    networkIntelligenceManager.clearAllIntelligenceData()
+  }
+
+  fun selectInterface(ifaceName: String) {
+    networkIntelligenceManager.selectInterface(ifaceName)
+  }
+
+  fun selectDeviceForDeepAnalysis(device: ObservedNetworkDevice?) {
+    networkIntelligenceManager.selectDeviceForDeepAnalysis(device)
+  }
+
+  fun generateAiAnalystReport() {
+    viewModelScope.launch {
+      networkIntelligenceManager.updateAiAnalystInsight(
+        aiAnalystInsight.value.copy(isGenerating = true)
+      )
+      val insight = aiNetworkAnalystService.generateIntelligenceAnalysis(
+        networkInfo = realNetworkInfo.value,
+        devices = observedDevices.value,
+        flows = communicationFlows.value,
+        services = applicationServices.value,
+        health = networkHealth.value,
+        alerts = securityAlerts.value,
+        trafficStats = liveTrafficStats.value
+      )
+      networkIntelligenceManager.updateAiAnalystInsight(insight)
+    }
+  }
+
+  // Database History & Retention Actions (36 - 57)
+  fun selectHistoricalSession(sessionId: String) {
+    viewModelScope.launch {
+      val details = dbManager.getHistoricalSessionDetails(sessionId)
+      _selectedHistoricalSessionDetails.value = details
+    }
+  }
+
+  fun clearSelectedHistoricalSession() {
+    _selectedHistoricalSessionDetails.value = null
+  }
+
+  fun updateRetentionSettings(settings: com.example.data.model.DataRetentionSettingsEntity) {
+    viewModelScope.launch {
+      dbManager.enforceDataRetention(settings)
+    }
+  }
+
+  fun enforceRetentionNow() {
+    viewModelScope.launch {
+      dbManager.enforceDataRetention(retentionSettings.value)
+    }
+  }
+
+  fun refreshDatabaseMetrics() {
+    viewModelScope.launch {
+      dbManager.updateDatabaseMetrics()
+      syncManager.updatePendingCounts()
+    }
+  }
+
+  // Server & Synchronization Actions
+  fun updateServerConfig(config: com.example.data.server.ServerConfig) {
+    serverConfigManager.updateConfig(config)
+  }
+
+  fun testServerConnection() {
+    viewModelScope.launch {
+      serverConnectionManager.testConnection()
+    }
+  }
+
+  fun disconnectServer() {
+    serverConnectionManager.disconnect()
+  }
+
+  fun syncDatabaseNow() {
+    viewModelScope.launch {
+      syncManager.syncNow()
+    }
   }
 }

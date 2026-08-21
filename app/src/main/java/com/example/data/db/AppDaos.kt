@@ -20,6 +20,9 @@ interface PacketDao {
   @Query("SELECT * FROM packets WHERE sessionId = :sessionId ORDER BY id DESC")
   fun getPacketsForSession(sessionId: String): Flow<List<PacketEntity>>
 
+  @Query("SELECT * FROM packets WHERE sessionId = :sessionId ORDER BY id ASC")
+  suspend fun getPacketsListForSession(sessionId: String): List<PacketEntity>
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertPacket(packet: PacketEntity): Long
 
@@ -28,6 +31,9 @@ interface PacketDao {
 
   @Query("DELETE FROM packets")
   suspend fun clearAllPackets()
+
+  @Query("DELETE FROM packets WHERE timestamp < :cutoffTimestamp")
+  suspend fun deletePacketsOlderThan(cutoffTimestamp: Long): Int
 
   @Query("SELECT COUNT(*) FROM packets")
   suspend fun getPacketCount(): Int

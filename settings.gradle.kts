@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Packet Capture Pro"
+rootProject.name = "PACKETIVEX"
 
 include(":app")

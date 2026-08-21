@@ -1,6 +1,7 @@
 package com.example.ui.components
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,7 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.util.NetworkAnalyticsConfig
 import java.util.Locale
 
 data class HorizontalBarItem(
@@ -78,13 +80,15 @@ fun InteractiveHorizontalBarChart(
   ) {
     items.forEach { item ->
       val isSelected = item.id == selectedItemId
-      val progressAnim = remember(item.id) { Animatable(0f) }
-
-      LaunchedEffect(item.totalBytes) {
-        progressAnim.snapTo(0f)
-        val target = (item.totalBytes.toFloat() / maxTotal.toFloat()).coerceIn(0.02f, 1f)
-        progressAnim.animateTo(target, animationSpec = tween(durationMillis = 500))
-      }
+      val rawRatio = (item.totalBytes.toFloat() / maxTotal.toFloat()).coerceIn(0.02f, 1f)
+      val animatedProgressRatio by animateFloatAsState(
+        targetValue = rawRatio,
+        animationSpec = tween(
+          durationMillis = NetworkAnalyticsConfig.CHART_ANIMATION_DURATION_MS,
+          easing = LinearOutSlowInEasing
+        ),
+        label = "bar_progress_ratio_${item.id}"
+      )
 
       Surface(
         modifier = Modifier
@@ -177,7 +181,7 @@ fun InteractiveHorizontalBarChart(
             Row(
               modifier = Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(fraction = progressAnim.value)
+                .fillMaxWidth(fraction = animatedProgressRatio)
                 .clip(RoundedCornerShape(5.dp))
             ) {
               // Download segment (Blue/Teal)

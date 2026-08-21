@@ -2,7 +2,10 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import com.example.util.NetworkAnalyticsConfig
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -91,11 +94,14 @@ fun UsageTimelineChart(
     dataPoints.getOrNull(safePointIndex) ?: dataPoints.lastOrNull()
   } else null
 
-  val animProgress = remember(scope, selectedMetric, chartStyle) { Animatable(0f) }
-  LaunchedEffect(scope, selectedMetric, chartStyle, dataPoints) {
-    animProgress.snapTo(0f)
-    animProgress.animateTo(1f, animationSpec = tween(durationMillis = 450))
-  }
+  val animProgress by animateFloatAsState(
+    targetValue = 1.0f,
+    animationSpec = tween(
+      durationMillis = NetworkAnalyticsConfig.CHART_ANIMATION_DURATION_MS,
+      easing = LinearOutSlowInEasing
+    ),
+    label = "timeline_anim_progress"
+  )
 
   Column(
     modifier = modifier
@@ -338,7 +344,7 @@ fun UsageTimelineChart(
       ) {
         dataPoints.forEachIndexed { index, point ->
           val value = metricValues.getOrElse(index) { 0.0 }
-          val ratio = ((value / maxVal).toFloat()).coerceIn(0.04f, 1f) * animProgress.value
+          val ratio = ((value / maxVal).toFloat()).coerceIn(0.04f, 1f) * animProgress
           val isSelected = index == safePointIndex
 
           Column(
@@ -457,7 +463,7 @@ fun UsageTimelineChart(
 
             val stepX = if (numPoints > 1) canvasWidth / (numPoints - 1) else canvasWidth / 2f
             val points = metricValues.mapIndexed { idx, v ->
-              val normalized = ((v / maxVal).toFloat()).coerceIn(0.02f, 1f) * animProgress.value
+              val normalized = ((v / maxVal).toFloat()).coerceIn(0.02f, 1f) * animProgress
               val x = if (numPoints > 1) idx * stepX else canvasWidth / 2f
               val y = canvasHeight - (normalized * canvasHeight)
               Offset(x, y)

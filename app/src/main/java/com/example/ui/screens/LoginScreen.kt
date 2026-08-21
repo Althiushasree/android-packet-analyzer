@@ -135,9 +135,9 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // NT04 PACKET CAPTURE Subtitle
+        // PACKETIVEX Subtitle
         Text(
-          text = "NT04 PACKET CAPTURE",
+          text = "PACKETIVEX SECURE NETWORK MONITOR",
           style = MaterialTheme.typography.labelMedium.copy(
             letterSpacing = 2.sp,
             fontWeight = FontWeight.Bold

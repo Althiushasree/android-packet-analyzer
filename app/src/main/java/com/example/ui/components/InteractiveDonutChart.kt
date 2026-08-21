@@ -2,7 +2,10 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import com.example.util.NetworkAnalyticsConfig
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -134,34 +137,9 @@ fun InteractiveDonutChart(
   var showOtherDetailsDialog by remember { mutableStateOf(false) }
   var otherDialogSegment by remember { mutableStateOf<DonutSegment?>(null) }
 
-  if (segments.isEmpty()) {
-    Box(
-      modifier = modifier
-        .fillMaxWidth()
-        .height(260.dp)
-        .testTag("donut_chart_empty"),
-      contentAlignment = Alignment.Center
-    ) {
-      Text(
-        text = "No network traffic recorded yet.",
-        style = MaterialTheme.typography.bodyMedium,
-        color = Color(0xFF64748B)
-      )
-    }
-    return
-  }
-
-  val totalPercentage = segments.sumOf { it.percentage.toDouble() }.toFloat().coerceAtLeast(0.01f)
-  val animationProgress = remember(segments) { Animatable(0f) }
-
-  LaunchedEffect(segments) {
-    animationProgress.snapTo(0f)
-    animationProgress.animateTo(1f, animationSpec = tween(durationMillis = 700))
-  }
-
   val isIpMode = centerTitle.contains("IP", ignoreCase = true)
-  val cardTitle = if (isIpMode) "Top IP Addresses" else "Top Applications"
-  val bannerText = if (isIpMode) "Tap any IP or segment to view IP Details" else "Tap any app or segment to view Application Details"
+  val cardTitle = if (isIpMode) "Endpoint Traffic (IPs)" else "Application Traffic"
+  val bannerText = if (isIpMode) "Tap any IP or slice to inspect endpoint" else "Tap any app or slice to inspect application"
   val centerHeader = if (isIpMode) "TOTAL IP DATA" else "TOTAL APP DATA"
 
   val handleSegmentSelection: (DonutSegment) -> Unit = { seg ->
@@ -178,115 +156,172 @@ fun InteractiveDonutChart(
     modifier = modifier
       .fillMaxWidth()
       .testTag("interactive_donut_card"),
-    shape = RoundedCornerShape(16.dp),
-    colors = CardDefaults.cardColors(containerColor = Color.White),
+    shape = RoundedCornerShape(14.dp),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
   ) {
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(18.dp)
+        .padding(14.dp)
     ) {
-      // 1. Header Title (e.g. "Top IP Addresses" or "Top Applications")
-      Text(
-        text = cardTitle,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = Color(0xFF0F172A),
-        fontSize = 16.sp
-      )
+      // 1. Header Title
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Text(
+          text = cardTitle,
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+          text = centerValueFormatted,
+          style = MaterialTheme.typography.labelMedium,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.primary
+        )
+      }
 
-      Spacer(modifier = Modifier.height(16.dp))
+      Spacer(modifier = Modifier.height(12.dp))
 
-      // 2. Main Body: Donut on Left, Legend on Right
-      BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val isWide = maxWidth >= 540.dp
-        if (isWide) {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalAlignment = Alignment.CenterVertically
+      if (segments.isEmpty()) {
+        // Compact Mobile Empty State
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp)
+            .testTag("donut_chart_empty"),
+          contentAlignment = Alignment.Center
+        ) {
+          Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
           ) {
-            // Left Donut Canvas
-            DonutChartCanvas(
-              segments = segments,
-              totalPercentage = totalPercentage,
-              animationProgress = animationProgress.value,
-              centerHeader = centerHeader,
-              centerValueFormatted = centerValueFormatted,
-              selectedSegmentId = selectedSegmentId,
-              onSelectSegment = handleSegmentSelection,
-              modifier = Modifier.size(200.dp)
+            Icon(
+              imageVector = Icons.Default.Apps,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+              modifier = Modifier.size(32.dp)
             )
-
-            // Right Legend Items List
-            DonutLegendList(
-              segments = segments,
-              isIpMode = isIpMode,
-              selectedSegmentId = selectedSegmentId,
-              onSelectSegment = handleSegmentSelection,
-              modifier = Modifier.weight(1f)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+              text = if (isIpMode) "No endpoint traffic detected" else "No application traffic detected",
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.SemiBold,
+              color = MaterialTheme.colorScheme.onSurface
             )
-          }
-        } else {
-          // Mobile responsive: side by side if width allows (~320-500dp), or wrapped
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            DonutChartCanvas(
-              segments = segments,
-              totalPercentage = totalPercentage,
-              animationProgress = animationProgress.value,
-              centerHeader = centerHeader,
-              centerValueFormatted = centerValueFormatted,
-              selectedSegmentId = selectedSegmentId,
-              onSelectSegment = handleSegmentSelection,
-              modifier = Modifier.size(165.dp)
-            )
-
-            DonutLegendList(
-              segments = segments,
-              isIpMode = isIpMode,
-              selectedSegmentId = selectedSegmentId,
-              onSelectSegment = handleSegmentSelection,
-              modifier = Modifier.weight(1f)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "Start capture to generate a traffic report.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
         }
-      }
+      } else {
+        val totalPercentage = segments.sumOf { it.percentage.toDouble() }.toFloat().coerceAtLeast(0.01f)
+        val animatedProgress by animateFloatAsState(
+          targetValue = 1.0f,
+          animationSpec = tween(
+            durationMillis = NetworkAnalyticsConfig.CHART_ANIMATION_DURATION_MS,
+            easing = LinearOutSlowInEasing
+          ),
+          label = "donut_chart_progress"
+        )
 
-      Spacer(modifier = Modifier.height(16.dp))
+        // 2. Responsive Mobile Layout: Donut on Top (compact ~180dp), List below
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+          val isWide = maxWidth >= 540.dp
+          if (isWide) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(16.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              DonutChartCanvas(
+                segments = segments,
+                totalPercentage = totalPercentage,
+                animationProgress = animatedProgress,
+                centerHeader = centerHeader,
+                centerValueFormatted = centerValueFormatted,
+                selectedSegmentId = selectedSegmentId,
+                onSelectSegment = handleSegmentSelection,
+                modifier = Modifier.size(190.dp)
+              )
 
-      // 3. Bottom Info Banner (e.g. "ⓘ Tap any IP or segment to view IP Details")
-      Surface(
-        color = Color(0xFFF8FAFC),
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-          verticalAlignment = Alignment.CenterVertically
+              DonutLegendList(
+                segments = segments,
+                isIpMode = isIpMode,
+                selectedSegmentId = selectedSegmentId,
+                onSelectSegment = handleSegmentSelection,
+                modifier = Modifier.weight(1f)
+              )
+            }
+          } else {
+            Column(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+              // Centered Mobile Donut Chart
+              DonutChartCanvas(
+                segments = segments,
+                totalPercentage = totalPercentage,
+                animationProgress = animatedProgress,
+                centerHeader = centerHeader,
+                centerValueFormatted = centerValueFormatted,
+                selectedSegmentId = selectedSegmentId,
+                onSelectSegment = handleSegmentSelection,
+                modifier = Modifier
+                  .size(180.dp)
+                  .padding(vertical = 4.dp)
+              )
+
+              Spacer(modifier = Modifier.height(14.dp))
+
+              // Compact Application / IP List Items Below
+              DonutLegendList(
+                segments = segments,
+                isIpMode = isIpMode,
+                selectedSegmentId = selectedSegmentId,
+                onSelectSegment = handleSegmentSelection,
+                modifier = Modifier.fillMaxWidth()
+              )
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 3. Compact Info Footer
+        Surface(
+          color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
         ) {
-          Icon(
-            imageVector = Icons.Default.Info,
-            contentDescription = null,
-            tint = Color(0xFF64748B),
-            modifier = Modifier.size(16.dp)
-          )
-          Spacer(modifier = Modifier.width(8.dp))
-          Text(
-            text = bannerText,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF64748B),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-          )
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Icon(
+              imageVector = Icons.Default.Info,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = bannerText,
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              fontSize = 11.sp
+            )
+          }
         }
       }
     }
@@ -588,60 +623,92 @@ fun DonutLegendList(
       val isSelected = seg.id == selectedSegmentId
       val rowBg = if (isSelected) seg.color.copy(alpha = 0.08f) else Color.Transparent
 
-      Row(
+      Surface(
         modifier = Modifier
           .fillMaxWidth()
           .clip(RoundedCornerShape(8.dp))
-          .background(rowBg)
           .clickable { onSelectSegment(seg) }
-          .padding(horizontal = 4.dp, vertical = 3.dp)
           .testTag("donut_legend_item_${seg.id}"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        color = rowBg,
+        shape = RoundedCornerShape(8.dp),
+        border = if (isSelected) BorderStroke(1.dp, seg.color.copy(alpha = 0.6f)) else null
       ) {
-        // Left Icon + Title + Data Usage
         Row(
-          modifier = Modifier.weight(1f),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 6.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
+          // 1. App or IP Icon
           if (isIpMode) {
-            IpNetworkIcon(color = seg.color, isOther = seg.isOther)
+            IpNetworkIcon(color = seg.color, isOther = seg.isOther, modifier = Modifier.size(32.dp))
           } else {
-            AppBrandIcon(label = seg.label, isOther = seg.isOther)
+            AppBrandIcon(label = seg.label, isOther = seg.isOther, modifier = Modifier.size(32.dp))
           }
 
           Spacer(modifier = Modifier.width(10.dp))
 
-          Column(modifier = Modifier.weight(1f, fill = false)) {
-            Text(
-              text = if (seg.isOther && !isIpMode && seg.label == "Other") "Other Apps" else seg.label,
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = FontWeight.SemiBold,
-              color = Color(0xFF0F172A),
-              fontSize = 13.sp,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
+          // 2. Center Column: Name, Volume, and Proportional Progress Bar
+          Column(
+            modifier = Modifier.weight(1f)
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Text(
+                text = if (seg.isOther && !isIpMode && seg.label == "Other") "Other Apps" else seg.label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+              )
+
+              Spacer(modifier = Modifier.width(6.dp))
+
+              Text(
+                text = "${String.format(Locale.US, "%.1f", seg.percentage)}%",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp
+              )
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
             Text(
               text = formatDonutBytes(seg.value),
               style = MaterialTheme.typography.labelSmall,
-              fontWeight = FontWeight.Bold,
-              color = Color(0xFF2979FF),
+              fontWeight = FontWeight.SemiBold,
+              color = seg.color,
               fontSize = 11.5.sp
             )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Proportional progress bar
+            Box(
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(seg.color.copy(alpha = 0.15f))
+            ) {
+              Box(
+                modifier = Modifier
+                  .fillMaxWidth(fraction = (seg.percentage / 100f).coerceIn(0.02f, 1f))
+                  .height(4.dp)
+                  .clip(RoundedCornerShape(2.dp))
+                  .background(seg.color)
+              )
+            }
           }
         }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Right Percentage
-        Text(
-          text = "${String.format(Locale.US, "%.1f", seg.percentage)}%",
-          style = MaterialTheme.typography.bodyMedium,
-          fontWeight = FontWeight.Medium,
-          color = Color(0xFF475569),
-          fontSize = 13.sp
-        )
       }
     }
   }

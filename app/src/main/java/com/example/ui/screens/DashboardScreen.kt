@@ -1,7 +1,16 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,16 +34,23 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,8 +64,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.model.AlarmSeverity
 import com.example.data.model.AppTrafficSummary
 import com.example.data.model.DetailedAppTraffic
@@ -98,8 +116,8 @@ fun DashboardScreen(
       .verticalScroll(scrollState)
       .testTag("dashboard_screen")
   ) {
-    // Header Live Status Card
-    LiveStatusBanner(
+    // Interactive TUN Interface Packet Capture Controller Card
+    PacketCaptureToggleCard(
       isCapturing = isCapturing,
       stats = stats,
       onToggleCapture = onToggleCapture
@@ -149,67 +167,200 @@ fun DashboardScreen(
   }
 }
 
+/**
+ * Interactive UI Component providing a prominent Start/Stop toggle
+ * integrated directly with the PacketCaptureService and Android TUN VPN lifecycle.
+ */
 @Composable
-private fun LiveStatusBanner(
+fun PacketCaptureToggleCard(
   isCapturing: Boolean,
   stats: NetworkStats,
   onToggleCapture: () -> Unit
 ) {
+  val activeContainerColor = if (isCapturing) {
+    MaterialTheme.colorScheme.primaryContainer
+  } else {
+    MaterialTheme.colorScheme.surfaceVariant
+  }
+
   Card(
     modifier = Modifier
       .fillMaxWidth()
-      .testTag("live_status_banner"),
-    colors = CardDefaults.cardColors(
-      containerColor = if (isCapturing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    ),
-    shape = RoundedCornerShape(16.dp)
+      .testTag("packet_capture_toggle_card"),
+    colors = CardDefaults.cardColors(containerColor = activeContainerColor),
+    shape = RoundedCornerShape(20.dp),
+    elevation = CardDefaults.cardElevation(defaultElevation = if (isCapturing) 4.dp else 1.dp)
   ) {
-    Row(
+    Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(16.dp),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+        .padding(18.dp)
     ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+      // Top Status Bar and Primary Toggle Switch
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          modifier = Modifier.weight(1f, fill = false)
+        ) {
+          // Status Indicator Orb
           Box(
             modifier = Modifier
-              .size(10.dp)
+              .size(12.dp)
               .clip(CircleShape)
-              .background(if (isCapturing) Color(0xFF16A34A) else Color(0xFFDC2626))
+              .background(
+                if (isCapturing) Color(0xFF16A34A)
+                else Color(0xFF94A3B8)
+              )
           )
+
           Spacer(modifier = Modifier.width(8.dp))
-          Text(
-            text = if (isCapturing) "LIVE CAPTURING IN PROGRESS" else "CAPTURE PAUSED",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = if (isCapturing) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-          )
+
+          Column {
+            Text(
+              text = if (isCapturing) "CAPTURE ACTIVE" else "CAPTURE IDLE",
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.Bold,
+              color = if (isCapturing) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+              overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            Text(
+              text = if (isCapturing) "tun0 active • recording" else "VPN tunnel ready",
+              style = MaterialTheme.typography.bodySmall,
+              color = if (isCapturing) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+              maxLines = 1,
+              overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+              fontSize = 11.sp
+            )
+          }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-          text = "${stats.totalPacketsCaptured} Packets Captured (${String.format(Locale.US, "%.2f", stats.totalBytesCaptured / 1024.0 / 1024.0)} MB)",
-          style = MaterialTheme.typography.bodyMedium,
-          color = if (isCapturing) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Prominent Switch Toggle
+        Switch(
+          checked = isCapturing,
+          onCheckedChange = { onToggleCapture() },
+          colors = SwitchDefaults.colors(
+            checkedThumbColor = Color.White,
+            checkedTrackColor = Color(0xFF16A34A),
+            uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+            uncheckedTrackColor = MaterialTheme.colorScheme.surface
+          ),
+          modifier = Modifier.testTag("packet_capture_switch_toggle")
         )
       }
 
-      Button(
-        onClick = onToggleCapture,
-        colors = ButtonDefaults.buttonColors(
-          containerColor = if (isCapturing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-        ),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.testTag("toggle_capture_dashboard_button")
+      Spacer(modifier = Modifier.height(12.dp))
+      HorizontalDivider(color = if (isCapturing) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outlineVariant)
+      Spacer(modifier = Modifier.height(12.dp))
+
+      // Bottom Row with Live Telemetry Badges and 1-Tap Action Button
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(
-          imageVector = if (isCapturing) Icons.Default.Stop else Icons.Default.PlayArrow,
-          contentDescription = null,
-          modifier = Modifier.size(18.dp)
-        )
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          modifier = Modifier.weight(1f, fill = false)
+        ) {
+          // Packet Count Badge
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = if (isCapturing) MaterialTheme.colorScheme.surface.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surface,
+            modifier = Modifier.border(
+              width = 1.dp,
+              color = if (isCapturing) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent,
+              shape = RoundedCornerShape(8.dp)
+            )
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(
+                imageVector = Icons.Default.Radio,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = if (isCapturing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+              Spacer(modifier = Modifier.width(3.dp))
+              Text(
+                text = "${stats.totalPacketsCaptured} pkts",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp,
+                maxLines = 1
+              )
+            }
+          }
+
+          // Data Volume Badge
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = if (isCapturing) MaterialTheme.colorScheme.surface.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surface,
+            modifier = Modifier.border(
+              width = 1.dp,
+              color = if (isCapturing) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent,
+              shape = RoundedCornerShape(8.dp)
+            )
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(
+                imageVector = Icons.Default.Memory,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = if (isCapturing) Color(0xFF0284C7) else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+              Spacer(modifier = Modifier.width(3.dp))
+              Text(
+                text = String.format(Locale.US, "%.2f MB", stats.totalBytesCaptured / 1024.0 / 1024.0),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp,
+                maxLines = 1
+              )
+            }
+          }
+        }
+
         Spacer(modifier = Modifier.width(6.dp))
-        Text(if (isCapturing) "Stop" else "Start")
+
+        // Action Button (Start / Stop)
+        Button(
+          onClick = onToggleCapture,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isCapturing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+          ),
+          shape = RoundedCornerShape(10.dp),
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+          modifier = Modifier.testTag("toggle_capture_dashboard_button")
+        ) {
+          Icon(
+            imageVector = if (isCapturing) Icons.Default.Stop else Icons.Default.PlayArrow,
+            contentDescription = if (isCapturing) "Stop VPN Capture" else "Start VPN Capture",
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+          Text(
+            text = if (isCapturing) "Stop" else "Start",
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp
+          )
+        }
       }
     }
   }

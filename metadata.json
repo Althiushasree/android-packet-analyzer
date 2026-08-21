@@ -1,5 +1,5 @@
 {
-  "name": "Packet Capture Pro",
+  "name": "PACKETIVEX",
   "description": "Mobile network packet capture, NetFlow analyzer, HTTPS stream inspection, and real-time traffic analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

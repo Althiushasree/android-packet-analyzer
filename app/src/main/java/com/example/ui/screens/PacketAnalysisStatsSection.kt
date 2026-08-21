@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Speed
@@ -42,7 +44,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.DetailedAppTraffic
@@ -108,79 +112,182 @@ fun PacketAnalysisStatsSection(
       modifier = Modifier.fillMaxWidth(),
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
       shape = RoundedCornerShape(14.dp),
-      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
       Column(modifier = Modifier.padding(14.dp)) {
-        Text(
-          text = "HIGHEST TRAFFIC CONSUMERS",
-          style = MaterialTheme.typography.labelSmall,
-          fontWeight = FontWeight.Bold,
-          color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
         Row(
           modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp)
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
         ) {
-          // Top App
-          Surface(
-            modifier = Modifier
-              .weight(1f)
-              .clip(RoundedCornerShape(8.dp))
-              .clickable {
-                topApps.firstOrNull()?.let { onInspectApp(it) }
-              },
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(8.dp)
-          ) {
-            Column(modifier = Modifier.padding(10.dp)) {
-              Text("Top Application", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-              Text(highestConsumer.topAppName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-              Text(formatDonutBytes(highestConsumer.topAppBytes), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            }
-          }
-
-          // Top IP
-          Surface(
-            modifier = Modifier
-              .weight(1f)
-              .clip(RoundedCornerShape(8.dp))
-              .clickable {
-                topIps.firstOrNull()?.let { onInspectIp(it) }
-              },
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(8.dp)
-          ) {
-            Column(modifier = Modifier.padding(10.dp)) {
-              Text("Top Endpoint IP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-              Text(highestConsumer.topIp, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-              Text(formatDonutBytes(highestConsumer.topIpBytes), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF0D9488))
-            }
+          Text(
+            text = "HIGHEST TRAFFIC CONSUMERS",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = 0.5.sp
+          )
+          if (highestConsumer.topAppBytes > 0L) {
+            Text(
+              text = "Live Peak",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
           }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Highest Traffic Connection
-        Surface(
-          modifier = Modifier.fillMaxWidth(),
-          color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-          shape = RoundedCornerShape(8.dp)
-        ) {
-          Row(
+        if (highestConsumer.topAppBytes == 0L && topApps.isEmpty()) {
+          Box(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+              .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
           ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text("Highest Traffic Connection (App → IP)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-              Text(highestConsumer.topConnection, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(
+              text = "No traffic captured yet. Start capture to detect consumers.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+        } else {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            // Top App
+            Surface(
+              modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                  topApps.firstOrNull()?.let { onInspectApp(it) }
+                },
+              color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+              shape = RoundedCornerShape(8.dp)
+            ) {
+              Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                  "Top Application",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  fontSize = 11.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                  text = highestConsumer.topAppName,
+                  style = MaterialTheme.typography.bodyMedium,
+                  fontWeight = FontWeight.Bold,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                  text = formatDonutBytes(highestConsumer.topAppBytes),
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = MaterialTheme.colorScheme.primary
+                )
+              }
             }
-            Text(formatDonutBytes(highestConsumer.topConnectionBytes), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+            // Top IP
+            Surface(
+              modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                  topIps.firstOrNull()?.let { onInspectIp(it) }
+                },
+              color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+              shape = RoundedCornerShape(8.dp)
+            ) {
+              Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                  "Top Endpoint IP",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  fontSize = 11.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                  text = highestConsumer.topIp,
+                  style = MaterialTheme.typography.bodyMedium,
+                  fontWeight = FontWeight.Bold,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                  text = formatDonutBytes(highestConsumer.topIpBytes),
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = Color(0xFF0D9488)
+                )
+              }
+            }
+          }
+
+          Spacer(modifier = Modifier.height(8.dp))
+
+          // Highest Traffic Connection (Clean multi-line structured layout)
+          Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            shape = RoundedCornerShape(10.dp)
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+            ) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.Hub,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                  )
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text(
+                    text = "TOP TRAFFIC CONNECTION",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 11.sp
+                  )
+                }
+                Surface(
+                  color = MaterialTheme.colorScheme.primaryContainer,
+                  shape = RoundedCornerShape(6.dp)
+                ) {
+                  Text(
+                    text = formatDonutBytes(highestConsumer.topConnectionBytes),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                  )
+                }
+              }
+
+              Spacer(modifier = Modifier.height(6.dp))
+
+              Text(
+                text = highestConsumer.topConnection,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface
+              )
+            }
           }
         }
       }

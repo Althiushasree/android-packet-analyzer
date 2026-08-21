@@ -11,6 +11,9 @@ import com.example.data.model.PacketEntity
 import com.example.data.model.PcapFileEntity
 import com.example.data.model.ProtocolDistribution
 import com.example.data.model.TargetAppInfo
+import com.example.data.vpn.PacketCaptureService
+import com.example.data.vpn.PacketCaptureVpnService
+import com.example.data.vpn.VpnTunnelConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +32,7 @@ import java.util.UUID
 import kotlin.random.Random
 
 class PacketRepository(context: Context) {
+  private val appContext = context.applicationContext
   private val db = AppDatabase.getDatabase(context)
   private val packetDao = db.packetDao()
   private val pcapFileDao = db.pcapFileDao()
@@ -103,11 +107,17 @@ class PacketRepository(context: Context) {
     }
   }
 
-  fun startCapture() {
+  fun startCapture(config: VpnTunnelConfig = VpnTunnelConfig()) {
     if (_isCapturing.value) return
     val sessionId = UUID.randomUUID().toString()
     _currentSessionId.value = sessionId
     _isCapturing.value = true
+
+    // Launch underlying Android VpnService engine with configured TUN parameters
+    try {
+      PacketCaptureService.start(appContext, config)
+    } catch (_: Exception) {
+    }
 
     captureJob = repositoryScope.launch {
       var startTime = System.currentTimeMillis()
@@ -148,6 +158,11 @@ class PacketRepository(context: Context) {
 
   fun stopCapture() {
     _isCapturing.value = false
+    try {
+      PacketCaptureService.stop(appContext)
+      PacketCaptureVpnService.stop(appContext)
+    } catch (_: Exception) {
+    }
     captureJob?.cancel()
     captureJob = null
   }

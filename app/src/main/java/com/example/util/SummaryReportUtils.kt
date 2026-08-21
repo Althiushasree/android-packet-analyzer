@@ -44,7 +44,7 @@ object SummaryReportUtils {
 
     val sb = StringBuilder()
     sb.appendLine("================================================================================")
-    sb.appendLine("                 PACKET CAPTURE PRO - NETWORK SUMMARY REPORT                    ")
+    sb.appendLine("                    PACKETIVEX - NETWORK SUMMARY REPORT                         ")
     sb.appendLine("================================================================================")
     sb.appendLine("Generated At       : $dateStr")
     sb.appendLine("Capture Status     : ${if (isCapturing) "ACTIVE (Capturing Live Traffic)" else "PAUSED / IDLE"}")
