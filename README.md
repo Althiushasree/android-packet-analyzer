@@ -1,8 +1,8 @@
-# 📡 Packet Capture Pro — Android Packet Analyzer
+# 📡 PACKETIVEX — Android Packet Analyzer & Network Intelligence
 
 > **Professional Android network traffic monitoring, packet analysis, application/IP bandwidth analysis, traffic visualization, and deep network diagnostics.**
 
-Packet Capture Pro is an Android-based network analysis application built with **Kotlin and Jetpack Compose**.
+**PACKETIVEX** is an Android-based network analysis application built with **Kotlin and Jetpack Compose**.
 
 The application is designed to provide a mobile-friendly experience for analyzing network traffic, identifying high-bandwidth applications and IP addresses, monitoring packet flows, recording network usage, detecting traffic anomalies, and visualizing network activity through interactive dashboards.
 
@@ -10,7 +10,7 @@ The application is designed to provide a mobile-friendly experience for analyzin
 
 ## 🚀 Overview
 
-Packet Capture Pro provides a comprehensive network monitoring dashboard that helps answer:
+**PACKETIVEX** provides a comprehensive network monitoring dashboard that helps answer:
 
 - Which application is consuming the most network data?
 - Which IP address is generating the most traffic?
@@ -48,7 +48,7 @@ The dashboard uses a permanent **light/white theme** for clear visibility.
 
 # 📱 Application Network Analysis
 
-Packet Capture Pro identifies applications responsible for network traffic.
+**PACKETIVEX** identifies applications responsible for network traffic.
 
 ### Application statistics include:
 
@@ -125,7 +125,7 @@ Example:
 
 # 🔗 Application ↔ IP Correlation
 
-Packet Capture Pro connects application traffic with destination IP addresses.
+**PACKETIVEX** connects application traffic with destination IP addresses.
 
 For example:
 
@@ -135,3 +135,4 @@ YouTube
 142.250.190.46
    ↓
 2.45 GB
+```
